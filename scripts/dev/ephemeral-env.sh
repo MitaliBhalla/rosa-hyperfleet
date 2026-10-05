@@ -395,10 +395,14 @@ cmd_provision() {
         >> "$ENVS_FILE"
 
     # Run the ephemeral provider
-    local tmpdir
+    local tmpdir artifacts_dir
     tmpdir=$(mktemp -d)
+    artifacts_dir="${ARTIFACTS_DIR:-${ARTIFACT_DIR:-${REPO_ROOT}/.ephemeral-artifacts/${ID}}}"
+    mkdir -p "$artifacts_dir"
     _prev_trap=$(trap -p EXIT | sed "s/^trap -- '//;s/' EXIT$//")
     trap 'rm -rf "${tmpdir:-}"; eval "$_prev_trap"' EXIT
+
+    echo "  ARTIFACTS_DIR:     $artifacts_dir"
 
     local rc=0
     # shellcheck disable=SC2086
@@ -408,8 +412,10 @@ cmd_provision() {
         $OVERRIDE_MOUNT \
         -v "${REPO_ROOT}:/workspace:ro,z" \
         -v "${tmpdir}:/output:z" \
+        -v "${artifacts_dir}:/artifacts:z" \
         -w /workspace \
         -e WORKSPACE_DIR=/workspace \
+        -e ARTIFACT_DIR=/artifacts \
         "$CI_IMAGE" \
         uv run --no-cache ci/ephemeral-provider/main.py \
             --id "$ID" \
@@ -468,6 +474,7 @@ cmd_provision() {
     else
         update_state "$ID" "provisioning-failed"
         echo "Provisioning failed. State updated to provisioning-failed."
+        echo "CodeBuild logs (if captured): $artifacts_dir"
         exit $rc
     fi
 }
@@ -493,6 +500,11 @@ cmd_teardown() {
     local eph_branch_flag=""
     [[ -z "$eph_branch" ]] || eph_branch_flag="--eph-branch $eph_branch"
 
+    # Set up artifacts directory for CodeBuild logs
+    local artifacts_dir
+    artifacts_dir="${ARTIFACTS_DIR:-${ARTIFACT_DIR:-${REPO_ROOT}/.ephemeral-artifacts/${BUILD_ID}}}"
+    mkdir -p "$artifacts_dir"
+
     # Print summary
     echo "Tearing down ephemeral environment..."
     echo "  ID:                $BUILD_ID"
@@ -501,6 +513,7 @@ cmd_teardown() {
     echo "  REGION:            $region"
     echo "  CONTAINER_ENGINE:  $CONTAINER_ENGINE"
     echo "  IMAGE:             $CI_IMAGE"
+    echo "  ARTIFACTS_DIR:     $artifacts_dir"
 
     # Run teardown
     update_state "$BUILD_ID" "deprovisioning"
@@ -511,8 +524,10 @@ cmd_teardown() {
         $_CONTAINER_AWS_FLAGS \
         -e "GITHUB_TOKEN=$GITHUB_TOKEN" \
         -v "${REPO_ROOT}:/workspace:ro,z" \
+        -v "${artifacts_dir}:/artifacts:z" \
         -w /workspace \
         -e WORKSPACE_DIR=/workspace \
+        -e ARTIFACT_DIR=/artifacts \
         "$CI_IMAGE" \
         uv run --no-cache ci/ephemeral-provider/main.py \
             --teardown --id "$BUILD_ID" --repo "$repo" --branch "$branch" \
@@ -553,6 +568,11 @@ cmd_resync() {
     local eph_branch_flag=""
     [[ -z "$eph_branch" ]] || eph_branch_flag="--eph-branch $eph_branch"
 
+    # Set up artifacts directory for CodeBuild logs
+    local artifacts_dir
+    artifacts_dir="${ARTIFACTS_DIR:-${ARTIFACT_DIR:-${REPO_ROOT}/.ephemeral-artifacts/${BUILD_ID}}}"
+    mkdir -p "$artifacts_dir"
+
     # Print summary
     echo "Resyncing ephemeral environment..."
     echo "  ID:                $BUILD_ID"
@@ -561,6 +581,7 @@ cmd_resync() {
     echo "  ENV CONFIG:        $OVERRIDE_INFO"
     echo "  CONTAINER_ENGINE:  $CONTAINER_ENGINE"
     echo "  IMAGE:             $CI_IMAGE"
+    echo "  ARTIFACTS_DIR:     $artifacts_dir"
 
     # Run resync
     # shellcheck disable=SC2086
@@ -569,8 +590,10 @@ cmd_resync() {
         -e "GITHUB_TOKEN=$GITHUB_TOKEN" \
         $OVERRIDE_MOUNT \
         -v "${REPO_ROOT}:/workspace:ro,z" \
+        -v "${artifacts_dir}:/artifacts:z" \
         -w /workspace \
         -e WORKSPACE_DIR=/workspace \
+        -e ARTIFACT_DIR=/artifacts \
         "$CI_IMAGE" \
         uv run --no-cache ci/ephemeral-provider/main.py \
             --resync --id "$BUILD_ID" --repo "$repo" --branch "$branch" \
@@ -1096,6 +1119,10 @@ cmd_e2e() {
     zoa_mc_api_url=$(get_field "$ENV_LINE" ZOA_MC_API_URL)
     [[ -n "$api_url" ]] \
         || die "No API_URL found for ID $BUILD_ID. Was it captured during provision?"
+    [[ -n "$zoa_rc_api_url" ]] \
+        || die "No ZOA_RC_API_URL found for ID $BUILD_ID. Was it captured during provision?"
+    [[ -n "$zoa_mc_api_url" ]] \
+        || die "No ZOA_MC_API_URL found for ID $BUILD_ID. Was it captured during provision?"
 
     # Fetch credentials and write container config
     setup_aws_config
@@ -1103,14 +1130,16 @@ cmd_e2e() {
 
     local rhobs_api_url
     rhobs_api_url=$(get_field "$ENV_LINE" RHOBS_API_URL)
+    [[ -n "$rhobs_api_url" ]] \
+        || die "No RHOBS_API_URL found for ID $BUILD_ID. Was it captured during provision?"
 
     # Run tests
     echo "Running e2e tests..."
     echo "  ID:             $BUILD_ID"
     echo "  API_URL:        $api_url"
-    echo "  RHOBS_API_URL:  ${rhobs_api_url:-<not set>}"
-    echo "  ZOA_RC_API_URL:     ${zoa_rc_api_url:-<not set>}"
-    echo "  ZOA_MC_API_URL:     ${zoa_mc_api_url:-<not set>}"
+    echo "  RHOBS_API_URL:  $rhobs_api_url"
+    echo "  ZOA_RC_API_URL: $zoa_rc_api_url"
+    echo "  ZOA_MC_API_URL: $zoa_mc_api_url"
     echo "  REGION:         $region"
     echo "  E2E_REF:        $e2e_ref"
     echo "  E2E_REPO:       $e2e_repo"
@@ -1122,9 +1151,9 @@ cmd_e2e() {
         -e "CLUSTER_PREFIX=eph-${BUILD_ID}-" \
         -e "BUILD_ID=$BUILD_ID" \
         -e "BASE_URL=$api_url" \
-        -e "RHOBS_API_URL=${rhobs_api_url:-}" \
-        -e "ZOA_RC_API_URL=${zoa_rc_api_url:-}" \
-        -e "ZOA_MC_API_URL=${zoa_mc_api_url:-}" \
+        -e "RHOBS_API_URL=$rhobs_api_url" \
+        -e "ZOA_RC_API_URL=$zoa_rc_api_url" \
+        -e "ZOA_MC_API_URL=$zoa_mc_api_url" \
         -e "AWS_DEFAULT_REGION=$region" \
         -e "AWS_REGION=$region" \
         -e "E2E_REF=$e2e_ref" \
@@ -1158,12 +1187,17 @@ cmd_zoa_e2e() {
         "Select environment for ZOA e2e tests:" \
         "No ready environments found."
 
-    local zoa_rc_api_url zoa_mc_api_url region
+    local zoa_rc_api_url zoa_mc_api_url region rhobs_api_url
     zoa_rc_api_url=$(get_field "$ENV_LINE" ZOA_RC_API_URL)
     zoa_mc_api_url=$(get_field "$ENV_LINE" ZOA_MC_API_URL)
     region=$(get_field "$ENV_LINE" REGION)
+    rhobs_api_url=$(get_field "$ENV_LINE" RHOBS_API_URL)
     [[ -n "$zoa_rc_api_url" ]] \
         || die "No ZOA_RC_API_URL found for ID $BUILD_ID. Was it captured during provision?"
+    [[ -n "$zoa_mc_api_url" ]] \
+        || die "No ZOA_MC_API_URL found for ID $BUILD_ID. Was it captured during provision?"
+    [[ -n "$rhobs_api_url" ]] \
+        || die "No RHOBS_API_URL found for ID $BUILD_ID. Was it captured during provision?"
 
     setup_aws_config
     write_eph_container_config
@@ -1171,7 +1205,8 @@ cmd_zoa_e2e() {
     echo "Running zoa e2e suite..."
     echo "  ID:             $BUILD_ID"
     echo "  ZOA_RC_API_URL: $zoa_rc_api_url"
-    echo "  ZOA_MC_API_URL: ${zoa_mc_api_url:-<not set — MC specs will be skipped>}"
+    echo "  ZOA_MC_API_URL: $zoa_mc_api_url"
+    echo "  RHOBS_API_URL:  $rhobs_api_url"
     echo "  REGION:         $region"
     echo "  ZOA_REF:        $zoa_ref"
     echo "  ZOA_REPO:       $zoa_repo"
@@ -1179,7 +1214,8 @@ cmd_zoa_e2e() {
     $CONTAINER_ENGINE run --rm \
         $_CONTAINER_AWS_FLAGS \
         -e "ZOA_RC_API_URL=$zoa_rc_api_url" \
-        -e "ZOA_MC_API_URL=${zoa_mc_api_url:-}" \
+        -e "ZOA_MC_API_URL=$zoa_mc_api_url" \
+        -e "RHOBS_API_URL=$rhobs_api_url" \
         -e "AWS_DEFAULT_REGION=$region" \
         -e "AWS_REGION=$region" \
         -e "ZOA_MAKE_TARGET=${ZOA_MAKE_TARGET:-test-e2e}" \
