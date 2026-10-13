@@ -108,20 +108,20 @@ Write `.tekton/<component>-pull-request.yaml` and `.tekton/<component>-push.yaml
 
 Leave `namespace: rosa-tenant` and `build-platforms: [linux/x86_64]`.
 
-**CEL.** One image, or the primary image of a multi-image repo (builds on every PR and every `main` push):
+**CEL.** Substitute the Branch input for `<branch>` (default `main`). One image, or any image the user said should build on every pull request and every push:
 
 ```text
-event == "pull_request" && target_branch == "main"
-event == "push" && target_branch == "main"
+event == "pull_request" && target_branch == "<branch>"
+event == "push" && target_branch == "<branch>"
 ```
 
-Additional images: add `pathChanged()` terms for the Containerfile, the source directories it copies, `go.mod` and `go.sum` when the module is shared, and `.tekton/<component>-pull-request.yaml` or `-push.yaml`. A Quay `<sha>` tag then exists only for commits that changed those paths.
+Add `pathChanged()` only when the user asked for path-filtered builds. Include the Containerfile, the source directories it copies, `go.mod` and `go.sum` when the module is shared, and `.tekton/<component>-pull-request.yaml` or `-push.yaml`. A Quay `<sha>` tag then exists only for commits that changed those paths. When the user asked for a build on every pull request, do not add `pathChanged()` terms, including on additional images.
 
 **Hermetic.** Leave `hermetic` unset when the Containerfile runs `microdnf`, `dnf`, or `go mod download`. That is the kube-applier default and needs network. Set `hermetic: "true"` and `prefetch-input` only when the build does not fetch modules or RPMs, or the user asks. One prefetch entry per module: `{"type":"gomod","path":"<dir>"}` (`path` omitted for the repo root). Copy those two params from `rosa-hyperfleet-api` `.tekton/rosa-hyperfleet-api-pull-request.yaml` if the file you copied does not have them. Do not rewrite the Containerfile in this task.
 
 ## 3. MintMaker
 
-If `renovate.json` is missing, copy [renovate.json](renovate.json) and set `dockerfile.managerFilePatterns` to every Containerfile or Dockerfile the pipelines build (plus `ci/Containerfile` when present).
+If `renovate.json` is missing, copy [renovate.json](renovate.json) and set `dockerfile.managerFilePatterns` to every Containerfile or Dockerfile the pipelines build (plus `ci/Containerfile` when present). Do not add `lgtm` or `approved` labels. Those labels are merge approval, and Tide will treat them as a review.
 
 If it exists, keep it. Ensure `dockerfile`, `tekton`, and `gomod` (when the repo has `go.mod`) are in `enabledManagers`, and that `managerFilePatterns` include the new Containerfile and `/^\\.tekton\\/.*\\.ya?ml$/`.
 
@@ -146,7 +146,7 @@ Prow keeps lint, unit, integration, and e2e. Do not delete ci-operator image job
 
 ## 6. GitOps pin
 
-After the first green `<component>-on-push` on `main`, pin the **plain full git SHA** in the consumer (usually `argocd/config/.../values.yaml` in this repo):
+After the first green `<component>-on-push` on the selected branch, pin the **plain full git SHA** in the consumer (usually `argocd/config/.../values.yaml` in this repo):
 
 ```yaml
 image:
@@ -164,7 +164,7 @@ Tell the user to merge in this order. Open the MRs only if they ask.
 2. Component repo — `.tekton/`, `renovate.json`, `docs/konflux.md`.
 3. Confirm a green `*-on-pull-request` check on a PR. If no check appears, the GitHub App `red-hat-konflux-kflux-prd-rh02` does not see the repo. Style A inherits `build.appstudio.openshift.io/request: configure-pac` from the tenant base; do not remove it. For Style B, add that annotation only when the app is not already installed.
 4. `openshift/release` branch protection.
-5. After a green `*-on-push` on `main`, pin the SHA.
+5. After a green `*-on-push` on the selected branch, pin the SHA.
 
 ## Report
 

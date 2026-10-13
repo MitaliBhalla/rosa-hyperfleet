@@ -24,13 +24,7 @@
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": true,
-      "addLabels": [
-        "automerge",
-        "dependencies",
-        "docker",
-        "lgtm",
-        "approved"
-      ]
+      "addLabels": ["automerge", "dependencies", "docker"]
     },
     {
       "description": "Require manual review for major Containerfile updates",
@@ -58,13 +52,7 @@
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": true,
-      "addLabels": [
-        "automerge",
-        "dependencies",
-        "go-modules",
-        "lgtm",
-        "approved"
-      ]
+      "addLabels": ["automerge", "dependencies", "go-modules"]
     },
     {
       "description": "Require manual review for major Go module updates",
@@ -87,7 +75,7 @@
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": true,
-      "addLabels": ["automerge", "dependencies", "lgtm", "approved"]
+      "addLabels": ["automerge", "dependencies"]
     },
     {
       "description": "Require manual review for major Tekton updates",

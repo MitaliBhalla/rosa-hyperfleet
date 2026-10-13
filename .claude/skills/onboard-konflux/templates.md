@@ -1,6 +1,6 @@
 # Konflux onboarding templates
 
-Replace `APPLICATION`, `COMPONENT`, `QUAY_REPO`, `GIT_HTTPS_URL`, `DOCKERFILE`, and `BRANCH`. Quote style matches the merged `rosa-tenant` overlays.
+Replace `APPLICATION`, `COMPONENT`, `QUAY_REPO`, `GIT_HTTPS_URL`, `DOCKERFILE`, `BRANCH`, and `REPO`. `REPO` is the repository name without the `openshift-online/` org. Quote style matches the merged `rosa-tenant` overlays.
 
 Overlay path:
 
@@ -107,7 +107,7 @@ spec:
 ```yaml
 - op: replace
   path: /metadata/name
-  value: COMPONENT-main-enterprise-contract
+  value: COMPONENT-BRANCH-enterprise-contract
 - op: replace
   path: /spec/application
   value: APPLICATION
@@ -181,7 +181,7 @@ Add `build.appstudio.openshift.io/request: configure-pac` under `annotations` on
 apiVersion: appstudio.redhat.com/v1beta2
 kind: IntegrationTestScenario
 metadata:
-  name: COMPONENT-main-enterprise-contract
+  name: COMPONENT-BRANCH-enterprise-contract
 spec:
   application: APPLICATION
   contexts:
@@ -216,7 +216,7 @@ branch-protection:
       repos:
         REPO:
           branches:
-            main:
+            BRANCH:
               protect: true
               required_status_checks:
                 contexts:
